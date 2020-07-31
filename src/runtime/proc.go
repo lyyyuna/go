@@ -532,15 +532,18 @@ func cpuinit() {
 func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
+	// 返回当前的 g，从 TLS 中获取
 	_g_ := getg()
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}
 
+	// 全局线程数上限
 	sched.maxmcount = 10000
 
 	tracebackinit()
 	moduledataverify()
+	// 初始化 stackpool
 	stackinit()
 	mallocinit()
 	fastrandinit() // must run before mcommoninit

@@ -79,6 +79,9 @@ func getproccount() int32 {
 	// moment, so that's a bit tricky and seems like overkill.
 	const maxCPUs = 64 * 1024
 	var buf [maxCPUs / 8]byte
+	// A process's CPU affinity mask determines the set of CPUs on which it is eligible to run.
+	// 系统调用 sched_getaffinity， 获取当前进程可以在哪几个 CPU 上运行
+	// 系统调用返回一个 mask ，数 1
 	r := sched_getaffinity(0, unsafe.Sizeof(buf), &buf[0])
 	if r < 0 {
 		return 1
@@ -269,6 +272,8 @@ func sysauxv(auxv []uintptr) int {
 	return i / 2
 }
 
+// 看 https://wiki.debian.org/Hugepages 解释，大于 4K 的页是 hugepage
+// Most current CPU architectures support bigger pages (so the CPU/OS have less entries to look-up), those are named Huge pages (on Linux), Super Pages (on BSD) or Large Pages (on Windows), but it all the same thing.
 var sysTHPSizePath = []byte("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size\x00")
 
 func getHugePageSize() uintptr {

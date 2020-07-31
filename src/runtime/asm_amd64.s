@@ -211,7 +211,7 @@ ok:
 	MOVL	AX, 0(SP)
 	MOVQ	24(SP), AX		// copy argv
 	MOVQ	AX, 8(SP)
-	CALL	runtime·args(SB)
+	CALL	runtime·args(SB)		// runtime1.go, args
 	CALL	runtime·osinit(SB)
 	CALL	runtime·schedinit(SB)
 
