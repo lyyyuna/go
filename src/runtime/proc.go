@@ -529,6 +529,10 @@ func cpuinit() {
 //	call runtime·mstart
 //
 // The new G calls runtime·main.
+/*
+M/P/G 彼此的初始化顺序遵循：
+mcommoninit、procresize、newproc，他们分别负责初始化 M 资源池（allm）、P 资源池（allp）、G 的运行现场（g.sched）以及调度队列（p.runq）
+*/
 func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
@@ -547,6 +551,19 @@ func schedinit() {
 	stackinit()
 	mallocinit()
 	fastrandinit() // must run before mcommoninit
+	// M 初始化，操作系统线程初始化
+	// 会初始化 allm 池
+	/*
+		M 的生命周期，M 可以在两种情况下被创建：
+
+		1. 程序运行之初的 M0，无需创建已经存在的系统线程，只需对其进行初始化即可。其函数调用链如下所示：
+
+		schedinit
+		↳ mcommoninit
+			↳ mpreinit
+		↳ msigsave
+			↳ initSigmask
+	*/
 	mcommoninit(_g_.m)
 	cpuinit()       // must run before alginit
 	alginit()       // maps must not be used before this call
@@ -554,7 +571,10 @@ func schedinit() {
 	typelinksinit() // uses maps, activeModules
 	itabsinit()     // uses activeModules
 
+	// 获取原始信号屏蔽字
 	msigsave(_g_.m)
+	// initSigmask 目标旨在记录主线程 M0 创建之初的屏蔽字 sigmask
+	// msigsave 执行完毕后，sigmask 最后保存到 initSigmask 这一全局变量中， 用于初始化新创建的 M 的信号屏蔽字
 	initSigmask = _g_.m.sigmask
 
 	goargs()
@@ -630,6 +650,7 @@ func mcommoninit(mp *m) {
 		mp.fastrand[1] = 1
 	}
 
+	// 有一些信号上的处理
 	mpreinit(mp)
 	if mp.gsignal != nil {
 		mp.gsignal.stackguard1 = mp.gsignal.stack.lo + _StackGuard
@@ -639,8 +660,10 @@ func mcommoninit(mp *m) {
 	// when it is just in a register or thread-local storage.
 	mp.alllink = allm
 
+	// w/o 是 without 的简写
 	// NumCgoCall() iterates over allm w/o schedlock,
 	// so we need to publish it safely.
+	// 等价于 allm = mp
 	atomicstorep(unsafe.Pointer(&allm), unsafe.Pointer(mp))
 	unlock(&sched.lock)
 
@@ -4171,6 +4194,10 @@ func procresize(nprocs int32) *p {
 	sched.procresizetime = now
 
 	// Grow allp if necessary.
+	// 必要时增加 allp
+	// 这个时候本质上是在检查用户代码是否有调用过 runtime.MAXGOPROCS 调整 p 的数量
+	// 此处多一步检查是为了避免内部的锁，如果 nprocs 明显小于 allp 的可见数量（因为 len）
+	// 则不需要进行加锁
 	if nprocs > int32(len(allp)) {
 		// Synchronize with retake, which could be running
 		// concurrently since it doesn't run on a P.
@@ -4181,6 +4208,7 @@ func procresize(nprocs int32) *p {
 			nallp := make([]*p, nprocs)
 			// Copy everything up to allp's cap so we
 			// never lose old allocated Ps.
+			// 从旧的 allp 拷贝到新的 nallp
 			copy(nallp, allp[:cap(allp)])
 			allp = nallp
 		}
@@ -4188,6 +4216,7 @@ func procresize(nprocs int32) *p {
 	}
 
 	// initialize new P's
+	// 初始化新的 P
 	for i := old; i < nprocs; i++ {
 		pp := allp[i]
 		if pp == nil {
@@ -4198,11 +4227,14 @@ func procresize(nprocs int32) *p {
 	}
 
 	_g_ := getg()
+	// 反查当前 g 绑定的 P，如果还是小于 nprocs
+	// 说明还是有效
 	if _g_.m.p != 0 && _g_.m.p.ptr().id < nprocs {
 		// continue to use the current P
 		_g_.m.p.ptr().status = _Prunning
 		_g_.m.p.ptr().mcache.prepareForSweep()
 	} else {
+		// 否则说明，当前 P 已经在 maxprocs 之外了
 		// release the current P and acquire allp[0].
 		//
 		// We must do this before destroying our current P
@@ -4216,13 +4248,17 @@ func procresize(nprocs int32) *p {
 				traceGoSched()
 				traceProcStop(_g_.m.p.ptr())
 			}
+			// 释放当前 P
 			_g_.m.p.ptr().m = 0
 		}
 		_g_.m.p = 0
 		_g_.m.mcache = nil
+
+		// 选择 allp[0]，将第一个 P 抢过来给当前 G 的 M 进行绑定
 		p := allp[0]
 		p.m = 0
 		p.status = _Pidle
+		// 将 allp[0] 与当前 M 绑定
 		acquirep(p)
 		if trace.enabled {
 			traceGoStart()
@@ -4244,15 +4280,22 @@ func procresize(nprocs int32) *p {
 	}
 
 	var runnablePs *p
+	// 将没有本地任务的 P 放到空闲链表中
+	// P.S. 由于程序刚刚开始，P 队列是空的，所以他们都会被链接到可运行的 P 链表上处于 _Pidle 状态
 	for i := nprocs - 1; i >= 0; i-- {
 		p := allp[i]
+		// 不是当前使用的 P
 		if _g_.m.p.ptr() == p {
 			continue
 		}
 		p.status = _Pidle
+		// 查看 P 上有没有 G
 		if runqempty(p) {
+			// 如果 P 上一个 G 都没有了，放入空闲列表
 			pidleput(p)
 		} else {
+			// P 上还有 G
+			// 绑定 m
 			p.m.set(mget())
 			p.link.set(runnablePs)
 			runnablePs = p
@@ -4261,6 +4304,7 @@ func procresize(nprocs int32) *p {
 	stealOrder.reset(uint32(nprocs))
 	var int32p *int32 = &gomaxprocs // make compiler check that gomaxprocs is an int32
 	atomic.Store((*uint32)(unsafe.Pointer(int32p)), uint32(nprocs))
+	// 除去当前 P 之外，将有任务的 P 彼此串联成链表，将没有任务的 P 放回到 idle 链表中
 	return runnablePs
 }
 

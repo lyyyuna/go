@@ -219,6 +219,7 @@ ok:
 	MOVQ	$runtime·mainPC(SB), AX		// entry
 	PUSHQ	AX
 	PUSHQ	$0			// arg size
+	// 运行完 runtime.procresize 之后，我们知道，主 goroutine 会以被调度器调度的方式进行运行， 这将由 runtime.newproc 来完成主 goroutine 的初始化工作
 	CALL	runtime·newproc(SB)
 	POPQ	AX
 	POPQ	AX
