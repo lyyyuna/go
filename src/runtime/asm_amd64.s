@@ -332,6 +332,14 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 TEXT runtime·systemstack_switch(SB), NOSPLIT, $0-0
 	RET
 
+/*
+然後有些不同的判斷，根據所呼叫的 goroutine 而定，會有不同的應對方式：
+
+g0 （註解中稱之為 per-OS-thread）
+`gsignal
+normal g
+若是前兩者的話，就直接執行 fn 函式並回傳。若否，則必須切換到系統堆疊執行該函式。另外註解中也提到，無名函式的使用方式是常用作法，因為其中的變數其實仍然可以享有整個函式的視野，就像 newproc 的 gp 等變數可以直接在無名函式內部使用一樣；若是無名函式內部有一些回傳值或是賦予值的變數，也可以在後續拿出來使用。
+*/
 // func systemstack(fn func())
 TEXT runtime·systemstack(SB), NOSPLIT, $0-8
 	MOVQ	fn+0(FP), DI	// DI = fn
