@@ -476,24 +476,25 @@ type m struct {
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
-	procid        uint64       // for debuggers, but offset not hard-coded
-	gsignal       *g           // signal-handling g
-	goSigStack    gsignalStack // Go-allocated signal handling stack
-	sigmask       sigset       // storage for saved signal mask
-	tls           [6]uintptr   // thread-local storage (for x86 extern register)
-	mstartfn      func()
-	curg          *g       // current running goroutine
-	caughtsig     guintptr // goroutine running during fatal signal
-	p             puintptr // attached p for executing go code (nil if not executing go code)
-	nextp         puintptr
-	oldp          puintptr // the p that was attached before executing a syscall
-	id            int64
-	mallocing     int32
-	throwing      int32
-	preemptoff    string // if != "", keep curg running on this m
-	locks         int32
-	dying         int32
-	profilehz     int32
+	procid     uint64       // for debuggers, but offset not hard-coded
+	gsignal    *g           // signal-handling g
+	goSigStack gsignalStack // Go-allocated signal handling stack
+	sigmask    sigset       // storage for saved signal mask
+	tls        [6]uintptr   // thread-local storage (for x86 extern register)
+	mstartfn   func()
+	curg       *g       // current running goroutine
+	caughtsig  guintptr // goroutine running during fatal signal
+	p          puintptr // attached p for executing go code (nil if not executing go code)
+	nextp      puintptr
+	oldp       puintptr // the p that was attached before executing a syscall
+	id         int64
+	mallocing  int32
+	throwing   int32
+	preemptoff string // if != "", keep curg running on this m
+	locks      int32
+	dying      int32
+	profilehz  int32
+	// 如果M在本地队列、全局运行队列、netpoller中找不到工作，则认为M正在自旋，也就是M进入了一种循环找可运行G的状态。
 	spinning      bool // m is out of work and is actively looking for work
 	blocked       bool // m is blocked on a note
 	newSigstack   bool // minit on C thread called sigaltstack

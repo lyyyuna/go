@@ -199,6 +199,7 @@ func main() {
 		// has a main, but it is not executed.
 		return
 	}
+	// main_main 由 linker 链接器生成 main.main
 	fn := main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
@@ -537,6 +538,7 @@ func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
 	// 返回当前的 g，从 TLS 中获取
+	/* getg 返回指向当前g的指针。编译器将对此函数的调用重写为直接获取g的指令（来自TLS或来自专用寄存器）。 要获取当前用户堆栈的g，可以使用getg().m.curg。getg()返回当前g，但是当在系统或信号堆栈上执行时，这将分别返回当前m的 g0 或 gsignal 。 要确定g是在用户堆栈还是系统堆栈上运行，可以使用getg() == getg().m.curg，相等表示在用户态堆栈，不相等表示在系统堆栈。*/
 	_g_ := getg()
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
@@ -1065,6 +1067,7 @@ func startTheWorldWithSema(emitTraceEvent bool) int64 {
 //go:nosplit
 //go:nowritebarrierrec
 func mstart() {
+	// 这里获取的g是g0，在系统堆栈
 	_g_ := getg()
 
 	osStack := _g_.stack.lo == 0
@@ -1101,6 +1104,8 @@ func mstart() {
 func mstart1() {
 	_g_ := getg()
 
+	// 确保 g 是系统栈上的 g0
+	// 调度器只在 g0 上执行
 	if _g_ != _g_.m.g0 {
 		throw("bad runtime·mstart")
 	}
@@ -2070,6 +2075,7 @@ func execute(gp *g, inheritTime bool) {
 	// M.
 	_g_.m.curg = gp
 	gp.m = _g_.m
+	// 就绪 -》运行
 	casgstatus(gp, _Grunnable, _Grunning)
 	gp.waitsince = 0
 	gp.preempt = false
@@ -3430,8 +3436,11 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		throw("newproc: function arguments too large for new goroutine")
 	}
 
+	// 检查当前结构体M中的P中
 	_p_ := _g_.m.p.ptr()
+	// 从 P 的 local 队列中获取空闲的 G，或者从全局队列中获取空闲的 G
 	newg := gfget(_p_)
+	// 如果没有空闲的 G，就新建一个
 	if newg == nil {
 		newg = malg(_StackMin)
 		casgstatus(newg, _Gidle, _Gdead)
@@ -3475,6 +3484,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	}
 
 	memclrNoHeapPointers(unsafe.Pointer(&newg.sched), unsafe.Sizeof(newg.sched))
+	// 准备 newg 的运行时
 	newg.sched.sp = sp
 	newg.stktopsp = sp
 	newg.sched.pc = funcPC(goexit) + sys.PCQuantum // +PCQuantum so that previous instruction is in same function
@@ -3489,6 +3499,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	if isSystemGoroutine(newg, false) {
 		atomic.Xadd(&sched.ngsys, +1)
 	}
+	// 就绪
 	casgstatus(newg, _Gdead, _Grunnable)
 
 	if _p_.goidcache == _p_.goidcacheend {
@@ -3509,7 +3520,10 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	}
 	runqput(_p_, newg, true)
 
+	// 调度器上空闲 P 的数量不为 0
+	// 无 m 自旋
 	if atomic.Load(&sched.npidle) != 0 && atomic.Load(&sched.nmspinning) == 0 && mainStarted {
+		// 直接给予机会唤醒
 		wakep()
 	}
 	releasem(_g_.m)
