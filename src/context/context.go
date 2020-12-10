@@ -230,8 +230,12 @@ type CancelFunc func()
 // Canceling this context releases resources associated with it, so code should
 // call cancel as soon as the operations running in this Context complete.
 func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
+	// 创建 cancelCtx 子对象，并设置父对象
 	c := newCancelCtx(parent)
+	// 将子对象加入父对象的 children
 	propagateCancel(parent, &c)
+	// c.cancel 关闭 done channel
+	// 并调用 children 的 close
 	return &c, func() { c.cancel(true, Canceled) }
 }
 
@@ -442,6 +446,7 @@ func WithDeadline(parent Context, d time.Time) (Context, CancelFunc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.err == nil {
+		// 对于 deadline 类型设置一个定时器来 cancel
 		c.timer = time.AfterFunc(dur, func() {
 			c.cancel(true, DeadlineExceeded)
 		})
